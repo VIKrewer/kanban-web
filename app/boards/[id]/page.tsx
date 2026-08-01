@@ -25,7 +25,7 @@ import { useBoard } from "@/lib/hooks/useBoards";
 import type { ColumnWithTasks, Task as TaskType } from "@/lib/supabase/models";
 import { Calendar, MoreHorizontal, Plus, UserCircle } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import {
     DndContext,
@@ -81,10 +81,7 @@ function DroppableColumn({
     const { setNodeRef } = useDroppable({ id: column.id });
 
     return (
-        <div
-            ref={setNodeRef}
-            className={`w-full lg:shrink-0 lg:w-80`}
-        >
+        <div ref={setNodeRef} className={`w-full lg:shrink-0 lg:w-80`}>
             <div className={`bg-white rounded-lg shadow-sm border`}>
                 {/* Column header */}
                 <div className="p-3 sm:p-4 border-b">
@@ -380,6 +377,8 @@ export default function BoardPage() {
         null,
     );
 
+    const lastMoveRef = useRef<{ taskId: string; targetColumnId: string } | null>(null);
+
     const [filters, setFilters] = useState({
         priority: [] as string[],
         assignee: [] as string[],
@@ -397,6 +396,11 @@ export default function BoardPage() {
             },
         }),
     );
+
+    const [dragInfo, setDragInfo] = useState<{
+        taskId: string;
+        sourceColumnId: string;
+    } | null>(null);
 
     function handleFilterChange(
         type: "priority" | "assignee" | "dueDate",
@@ -468,12 +472,24 @@ export default function BoardPage() {
 
     function handleDragStart(event: DragStartEvent) {
         const taskId = event.active.id as string;
+
         const task = columns
             .flatMap((col) => col.tasks)
             .find((task) => task.id === taskId);
 
         if (task) {
             setActiveTask(task);
+        }
+
+        const sourceColumn = columns.find((col) =>
+            col.tasks.some((task) => task.id === taskId),
+        );
+
+        if (sourceColumn) {
+            setDragInfo({
+                taskId,
+                sourceColumnId: sourceColumn.id,
+            });
         }
     }
 
@@ -494,13 +510,13 @@ export default function BoardPage() {
 
         if (!sourceColumn || !targetColumn) return;
 
-        // Mesma coluna — reordena
         if (sourceColumn.id === targetColumn.id) {
+            // Mesma coluna — reordena
             const activeIndex = sourceColumn.tasks.findIndex(
-                (task) => task.id === activeId,
+                (t) => t.id === activeId,
             );
-            const overIndex = targetColumn.tasks.findIndex(
-                (task) => task.id === overId,
+            const overIndex = sourceColumn.tasks.findIndex(
+                (t) => t.id === overId,
             );
 
             if (
@@ -509,21 +525,23 @@ export default function BoardPage() {
                 activeIndex !== overIndex
             ) {
                 setColumns((prev: ColumnWithTasks[]) => {
-                    const newColumns = [...prev];
-                    const column = newColumns.find(
-                        (col) => col.id === sourceColumn.id,
-                    );
-                    if (column) {
-                        const tasks = [...column.tasks];
-                        const [removed] = tasks.splice(activeIndex, 1);
-                        tasks.splice(overIndex, 0, removed);
-                        column.tasks = tasks;
-                    }
+                    const newColumns = prev.map((col) => ({
+                        ...col,
+                        tasks: [...col.tasks],
+                    }));
+                    const col = newColumns.find(
+                        (c) => c.id === sourceColumn.id,
+                    )!;
+                    const [removed] = col.tasks.splice(activeIndex, 1);
+                    col.tasks.splice(overIndex, 0, removed);
                     return newColumns;
                 });
             }
         } else {
-            // Coluna diferente — move a task
+            if (
+                lastMoveRef.current?.taskId === activeId &&
+                lastMoveRef.current?.targetColumnId === targetColumn.id
+            ) return;
             setColumns((prev: ColumnWithTasks[]) => {
                 const newColumns = prev.map((col) => ({
                     ...col,
@@ -537,9 +555,7 @@ export default function BoardPage() {
                     (col) => col.id === targetColumn.id,
                 )!;
 
-                const taskIndex = src.tasks.findIndex(
-                    (task) => task.id === activeId,
-                );
+                const taskIndex = src.tasks.findIndex((t) => t.id === activeId);
                 if (taskIndex === -1) return prev;
 
                 const [task] = src.tasks.splice(taskIndex, 1);
@@ -556,16 +572,17 @@ export default function BoardPage() {
     }
 
     async function handleDragEnd(event: DragEndEvent) {
+        lastMoveRef.current = null;
         try {
             const { active, over } = event;
 
-            if (!over) return;
+            if (!over || !dragInfo) return;
 
             const taskId = active.id as string;
             const overId = over.id as string;
 
-            const sourceColumn = columns.find((col) =>
-                col.tasks.some((task) => task.id === taskId),
+            const sourceColumn = columns.find(
+                (col) => col.id === dragInfo.sourceColumnId,
             );
 
             const targetColumn =
@@ -576,82 +593,33 @@ export default function BoardPage() {
 
             if (!sourceColumn || !targetColumn) return;
 
+            // Mesma coluna
             if (sourceColumn.id === targetColumn.id) {
-                const oldIndex = sourceColumn.tasks.findIndex(
-                    (task) => task.id === taskId,
+                const newIndex = targetColumn.tasks.findIndex(
+                    (task) => task.id === taskId, 
                 );
 
-                const newIndex = sourceColumn.tasks.findIndex(
-                    (task) => task.id === overId,
-                );
-
-                if (
-                    oldIndex !== -1 &&
-                    newIndex !== -1 &&
-                    oldIndex !== newIndex
-                ) {
-                    setColumns((prev) =>
-                        prev.map((col) => {
-                            if (col.id !== sourceColumn.id) return col;
-
-                            const tasks = [...col.tasks];
-
-                            const [movedTask] = tasks.splice(oldIndex, 1);
-
-                            tasks.splice(newIndex, 0, movedTask);
-
-                            return {
-                                ...col,
-                                tasks,
-                            };
-                        }),
-                    );
-
-                    moveTask(taskId, sourceColumn.id, newIndex).catch(
-                        console.error,
-                    );
+                if (newIndex !== -1) {
+                    await moveTask(taskId, targetColumn.id, newIndex);
                 }
-
                 return;
             }
 
-            setColumns((prev) => {
-                const source = prev.find((col) =>
-                    col.tasks.some((task) => task.id === taskId),
-                );
-
-                if (!source) return prev;
-
-                const task = source.tasks.find((task) => task.id === taskId);
-
-                if (!task) return prev;
-
-                return prev.map((col) => {
-                    if (col.id === source.id) {
-                        return {
-                            ...col,
-                            tasks: col.tasks.filter(
-                                (task) => task.id !== taskId,
-                            ),
-                        };
-                    }
-
-                    if (col.id === targetColumn.id) {
-                        return {
-                            ...col,
-                            tasks: [...col.tasks, task],
-                        };
-                    }
-
-                    return col;
-                });
-            });
-
-            moveTask(taskId, targetColumn.id, targetColumn.tasks.length).catch(
-                console.error,
+            // Outra coluna
+            const newIndex = targetColumn.tasks.findIndex(
+                (task) => task.id === taskId,
             );
+
+            await moveTask(
+                taskId,
+                targetColumn.id,
+                newIndex === -1 ? targetColumn.tasks.length : newIndex,
+            );
+        } catch (err) {
+            console.error(err);
         } finally {
             setActiveTask(null);
+            setDragInfo(null);
         }
     }
 

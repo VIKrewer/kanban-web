@@ -31,13 +31,13 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import type { Board } from "@/lib/supabase/models";
+import type { Board, BoardWithTasks } from "@/lib/supabase/models";
 
 //https://composed-oriole-84.clerk.accounts.dev
 
 export default function DashboardPage() {
     const { user } = useUser();
-    const { createBoard, boards, error } = useBoards();
+    const { createBoard, boards, error, boardsWithTasks } = useBoards();
     const [viewMode, setViewMode] = useState("grid");
 
     const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
@@ -54,12 +54,12 @@ export default function DashboardPage() {
         },
     });
 
-    const boardsWithTaskCount = boards.map((board: Board) => ({
-        ...board,
-        taskCount: 0,
-    }));
+    const filteredBoards = boardsWithTasks.filter((boards: BoardWithTasks) => {
+        const taskAmount = boards.columns.reduce(
+            (total, col) => total + col.tasks.length,
+            0,
+        );
 
-    const filteredBoards = boardsWithTaskCount.filter((boards: Board) => {
         const matchesSearch = boards.title
             .toLowerCase()
             .includes(filters.search.toLowerCase());
@@ -71,7 +71,13 @@ export default function DashboardPage() {
             (!filters.dateRange.end ||
                 new Date(boards.created_at) <= new Date(filters.dateRange.end));
 
-        return matchesSearch && matchesDateRange;
+        const matchesTaskCount =
+            (!filters.taskCount.min||
+                taskAmount >= filters.taskCount.min) &&
+            (!filters.taskCount.max ||
+                taskAmount <= filters.taskCount.max);
+
+        return matchesSearch && matchesDateRange && matchesTaskCount;
     });
     function clearFilters() {
         setFilters({
@@ -99,6 +105,8 @@ export default function DashboardPage() {
             </div>
         );
     }
+
+    console.log(filteredBoards);
 
     return (
         <div className="min-h-screen bg-gray-50 ">
@@ -304,18 +312,29 @@ export default function DashboardPage() {
                                                 {board.description}
                                             </CardDescription>
                                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-gray-500 space-y-1 sm:space-y-0">
-                                                <span>
-                                                    Criado em{" "}
-                                                    {new Date(
-                                                        board.created_at,
-                                                    ).toLocaleDateString()}
-                                                </span>
-                                                <span>
-                                                    Atualizado em{" "}
-                                                    {new Date(
-                                                        board.updated_at,
-                                                    ).toLocaleDateString()}
-                                                </span>
+                                                <div className="flex flex-col">
+                                                    <span>
+                                                        Criado em{" "}
+                                                        {new Date(
+                                                            board.created_at,
+                                                        ).toLocaleDateString()}
+                                                    </span>
+                                                    <span>
+                                                        Atualizado em{" "}
+                                                        {new Date(
+                                                            board.updated_at,
+                                                        ).toLocaleDateString()}
+                                                    </span>
+                                                </div>
+                                                <div>
+                                                    Tasks:{" "}
+                                                    {board.columns.reduce(
+                                                        (total, col) =>
+                                                            total +
+                                                            col.tasks.length,
+                                                        0,
+                                                    )}
+                                                </div>
                                             </div>
                                         </CardContent>
                                     </Card>
@@ -416,6 +435,7 @@ export default function DashboardPage() {
                             <Input
                                 id="search"
                                 placeholder="Procure por titulos de Board..."
+                                value={filters.search}
                                 onChange={(e) =>
                                     setFilters((prev) => ({
                                         ...prev,
@@ -434,6 +454,7 @@ export default function DashboardPage() {
 
                                     <Input
                                         type="date"
+                                        value={filters.dateRange.start ?? undefined}
                                         onChange={(e) =>
                                             setFilters((prev) => ({
                                                 ...prev,
@@ -453,6 +474,7 @@ export default function DashboardPage() {
 
                                     <Input
                                         type="date"
+                                        value={filters.dateRange.end ?? undefined}
                                         onChange={(e) =>
                                             setFilters((prev) => ({
                                                 ...prev,
@@ -476,6 +498,7 @@ export default function DashboardPage() {
                                         type="number"
                                         min={0}
                                         placeholder="Minimo de tarefas"
+                                        value={filters.taskCount.min || undefined}
                                         onChange={(e) =>
                                             setFilters((prev) => ({
                                                 ...prev,
@@ -494,6 +517,7 @@ export default function DashboardPage() {
 
                                     <Input
                                         type="number"
+                                        value={filters.taskCount.max || undefined}
                                         min={0}
                                         placeholder="Máximo de tarefas"
                                         onChange={(e) =>
@@ -513,8 +537,12 @@ export default function DashboardPage() {
                         </div>
 
                         <div className="flex flex-col sm:flex-row justify-between pt-4 space-y-2 sm:space-y-0 sm:space-x-2">
-                            <Button onClick={clearFilters} variant={"outline"}>Limpar Filtros</Button>
-                            <Button onClick={() => setIsFilterOpen(false)}>Aplicar Filtros</Button>
+                            <Button onClick={clearFilters} variant={"outline"}>
+                                Limpar Filtros
+                            </Button>
+                            <Button onClick={() => setIsFilterOpen(false)}>
+                                Aplicar Filtros
+                            </Button>
                         </div>
                     </div>
                 </DialogContent>

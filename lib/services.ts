@@ -59,6 +59,18 @@ export const boardService = {
 
         return data;
     },
+
+    async getBoardsWithTasks(supabase: SupabaseClient, userId: string) {
+        const {data, error} = await supabase
+            .from("boards")
+            .select("*, columns (*, tasks (*))")
+            .eq("user_id", userId)
+            .order("created_at", {ascending: false});
+
+        if(error) throw error
+
+        return data || [];
+    },
 };
 
 export const columnService = {
@@ -154,8 +166,12 @@ export const tasksService = {
     ) {
         const { data, error } = await supabase
             .from("tasks")
-            .update({ column_id: newColumnId, sort_order: newOrder, updated_at: new Date().toISOString()})
-            .eq("id", taskId)
+            .update({
+                column_id: newColumnId,
+                sort_order: newOrder,
+                updated_at: new Date().toISOString(),
+            })
+            .eq("id", taskId);
 
         if (error) throw error;
 
