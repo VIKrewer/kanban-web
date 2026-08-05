@@ -31,13 +31,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import type { Board, BoardWithTasks } from "@/lib/supabase/models";
+import type { BoardWithTasks } from "@/lib/supabase/models";
 
 //https://composed-oriole-84.clerk.accounts.dev
 
 export default function DashboardPage() {
     const { user } = useUser();
-    const { createBoard, boards, error, boardsWithTasks } = useBoards();
+    const { createBoard, error, boardsWithTasks } = useBoards();
+    const boards = boardsWithTasks;
     const [viewMode, setViewMode] = useState("grid");
 
     const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
