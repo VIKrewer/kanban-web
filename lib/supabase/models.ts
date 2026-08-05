@@ -38,3 +38,11 @@ export type ColumnWithTasks  = Column & {
 export type BoardWithTasks = Board & {
     columns: ColumnWithTasks[]
 }
+
+export type CreateTaskData = {
+  title: string;
+  description?: string;
+  assignee?: string;
+  dueDate?: string;
+  priority: "baixo" | "medio" | "alto";
+};
